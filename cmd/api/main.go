@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/krsnmvk/gorestapi/internal/api/middlewares"
+	m "github.com/krsnmvk/gorestapi/internal/api/middlewares"
 )
 
 func main() {
@@ -26,7 +26,7 @@ func main() {
 
 	server := &http.Server{
 		Addr:         fmt.Sprintf(":%d", port),
-		Handler:      middlewares.ResponseTimeMiddleware(mux),
+		Handler:      m.SecurityHeadersMiddleware(m.ResponseTimeMiddleware(mux)),
 		TLSConfig:    tlsConfig,
 		IdleTimeout:  time.Minute,
 		WriteTimeout: time.Second * 30,
