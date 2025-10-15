@@ -19,6 +19,8 @@ func (rt *ResponseTime) WeiteHeader(statusCode int) {
 
 func ResponseTimeMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		log.Println("RESPONSE TIME START")
+
 		start := time.Now()
 
 		rt := &ResponseTime{

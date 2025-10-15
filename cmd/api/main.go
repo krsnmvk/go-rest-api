@@ -26,7 +26,7 @@ func main() {
 
 	server := &http.Server{
 		Addr:         fmt.Sprintf(":%d", port),
-		Handler:      m.SecurityHeadersMiddleware(m.ResponseTimeMiddleware(mux)),
+		Handler:      m.ResponseTimeMiddleware(m.CorsMiddleware(m.SecurityHeadersMiddleware(mux))),
 		TLSConfig:    tlsConfig,
 		IdleTimeout:  time.Minute,
 		WriteTimeout: time.Second * 30,
