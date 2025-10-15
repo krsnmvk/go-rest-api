@@ -9,13 +9,22 @@ import (
 
 	m "github.com/krsnmvk/gorestapi/internal/api/middlewares"
 	"github.com/krsnmvk/gorestapi/internal/api/routes"
+	"github.com/krsnmvk/gorestapi/internal/database"
 	"github.com/krsnmvk/gorestapi/internal/utils"
 )
 
 func main() {
 	port := 8080
+
 	cert := "cert.pem"
 	key := "key.pem"
+
+	db := database.NewPostgres()
+	defer db.Close()
+
+	for key, value := range db.Health() {
+		log.Printf("%s: %s\n", key, value)
+	}
 
 	tlsConfig := &tls.Config{
 		MinVersion: tls.VersionTLS12,
