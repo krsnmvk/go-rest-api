@@ -8,6 +8,7 @@ import (
 	"time"
 
 	m "github.com/krsnmvk/gorestapi/internal/api/middlewares"
+	"github.com/krsnmvk/gorestapi/internal/utils"
 )
 
 func main() {
@@ -24,9 +25,11 @@ func main() {
 
 	port := 8080
 
+	secureMux := utils.Chain(mux, m.ResponseTimeMiddleware, m.CorsMiddleware, m.SecurityHeadersMiddleware)
+
 	server := &http.Server{
 		Addr:         fmt.Sprintf(":%d", port),
-		Handler:      m.ResponseTimeMiddleware(m.CorsMiddleware(m.SecurityHeadersMiddleware(mux))),
+		Handler:      secureMux,
 		TLSConfig:    tlsConfig,
 		IdleTimeout:  time.Minute,
 		WriteTimeout: time.Second * 30,
