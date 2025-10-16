@@ -41,10 +41,75 @@ func getTeachersHandler(w http.ResponseWriter, r *http.Request, q *database.Quer
 	path := strings.TrimPrefix(r.URL.Path, "/teachers/")
 	idStr := strings.TrimSuffix(path, "/")
 
+	if idStr == "" {
+		name := r.URL.Query().Get("name")
+		var args []any
+
+		sql := `
+			SELECT id, name, email, class, subject, created_at, updated_at
+			FROM teacher WHERE 1=1
+		`
+
+		if name != "" {
+			sql += " AND name = $1 LIMIT 10"
+			args = append(args, name)
+		}
+
+		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+		defer cancel()
+
+		rows, err := q.DB.Query(ctx, sql, args...)
+		if err != nil {
+			log.Printf("Database query error (teacher list): %v", err)
+			http.Error(w, "Failed to fetch data from the database.", http.StatusInternalServerError)
+			return
+		}
+		defer rows.Close()
+
+		var teachers []models.Teacher
+		for rows.Next() {
+			var t models.Teacher
+			err := rows.Scan(
+				&t.ID,
+				&t.Name,
+				&t.Email,
+				&t.Class,
+				&t.Subject,
+				&t.CreatedAt,
+				&t.UpdatedAt,
+			)
+			if err != nil {
+				log.Printf("Failed to scan teacher row: %v", err)
+				http.Error(w, "Failed to process teacher data.", http.StatusInternalServerError)
+				return
+			}
+			teachers = append(teachers, t)
+		}
+
+		if err := rows.Err(); err != nil {
+			log.Printf("Row iteration error: %v", err)
+			http.Error(w, "Unexpected error occurred while reading teachers.", http.StatusInternalServerError)
+			return
+		}
+
+		resp := response[[]models.Teacher]{
+			Success: true,
+			Data:    teachers,
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			log.Printf("Failed to encode JSON response: %v", err)
+			http.Error(w, "Unable to send response.", http.StatusInternalServerError)
+		}
+		return
+	}
+
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
-		http.Error(w, "Invalid ID parameter.", http.StatusBadRequest)
-		log.Printf("Invalid ID: %v\n", err)
+		http.Error(w, "The teacher ID must be a valid number.", http.StatusBadRequest)
+		log.Printf("Invalid teacher ID '%s': %v", idStr, err)
 		return
 	}
 
@@ -53,14 +118,12 @@ func getTeachersHandler(w http.ResponseWriter, r *http.Request, q *database.Quer
 		FROM teacher WHERE id = $1
 	`
 
-	var teacher models.Teacher
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
+	var teacher models.Teacher
 	row := q.DB.QueryRow(ctx, sql, id)
-
-	if err = row.Scan(
+	err = row.Scan(
 		&teacher.ID,
 		&teacher.Name,
 		&teacher.Email,
@@ -68,14 +131,16 @@ func getTeachersHandler(w http.ResponseWriter, r *http.Request, q *database.Quer
 		&teacher.Subject,
 		&teacher.CreatedAt,
 		&teacher.UpdatedAt,
-	); err != nil {
+	)
+	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			http.Error(w, "No rows found.", http.StatusNotFound)
+			http.Error(w, "Teacher not found.", http.StatusNotFound)
+			log.Printf("Teacher with ID %d not found.", id)
 			return
 		}
 
-		http.Error(w, "Query failed.", http.StatusInternalServerError)
-		log.Printf("Query failed: %v\n", err)
+		log.Printf("Database query error (get teacher by ID): %v", err)
+		http.Error(w, "Failed to fetch data from the database.", http.StatusInternalServerError)
 		return
 	}
 
@@ -85,12 +150,10 @@ func getTeachersHandler(w http.ResponseWriter, r *http.Request, q *database.Quer
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-
+	w.WriteHeader(http.StatusOK)
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		http.Error(w, "Failed to encode JSON response.", http.StatusInternalServerError)
-		log.Printf("An error ocurred while sending the response: %v\n", err)
-		return
+		log.Printf("Failed to encode JSON response: %v", err)
+		http.Error(w, "Unable to send response.", http.StatusInternalServerError)
 	}
 }
 
@@ -98,25 +161,24 @@ func postTeacherHandler(w http.ResponseWriter, r *http.Request, q *database.Quer
 	var input createTeacherParams
 
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		http.Error(w, "Invalid request body.", http.StatusBadRequest)
+		log.Printf("Failed to decode request body: %v", err)
 		return
 	}
 	defer r.Body.Close()
 
 	const sql = `
-	INSERT INTO teacher (name, email, class, subject)
-	VALUES ($1, $2, $3, $4)
-	RETURNING id, name, email, class, subject, created_at, updated_at
-`
+		INSERT INTO teacher (name, email, class, subject)
+		VALUES ($1, $2, $3, $4)
+		RETURNING id, name, email, class, subject, created_at, updated_at
+	`
 
-	var teacher models.Teacher
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
-	row := q.DB.QueryRow(ctx, sql, &input.Name, &input.Email, &input.Class, &input.Subject)
-
-	if err := row.Scan(
+	var teacher models.Teacher
+	row := q.DB.QueryRow(ctx, sql, input.Name, input.Email, input.Class, input.Subject)
+	err := row.Scan(
 		&teacher.ID,
 		&teacher.Name,
 		&teacher.Email,
@@ -124,24 +186,27 @@ func postTeacherHandler(w http.ResponseWriter, r *http.Request, q *database.Quer
 		&teacher.Subject,
 		&teacher.CreatedAt,
 		&teacher.UpdatedAt,
-	); err != nil {
-		var pgErr *pgconn.PgError
+	)
 
+	if err != nil {
+		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) {
 			switch pgErr.Code {
 			case "23505":
-				http.Error(w, "Email already in use.", http.StatusConflict)
+				http.Error(w, "A teacher with this email already exists.", http.StatusConflict)
+				log.Printf("Unique constraint violation (email): %v", pgErr)
 				return
 			}
 		}
 
 		if errors.Is(err, pgx.ErrNoRows) {
-			http.Error(w, "No rows found.", http.StatusNotFound)
+			http.Error(w, "Teacher not created.", http.StatusInternalServerError)
+			log.Printf("Insert returned no rows.")
 			return
 		}
 
-		http.Error(w, "Query failed.", http.StatusInternalServerError)
-		log.Printf("Query failed: %v\n", err)
+		http.Error(w, "Failed to create teacher.", http.StatusInternalServerError)
+		log.Printf("Database insert error: %v", err)
 		return
 	}
 
@@ -152,11 +217,9 @@ func postTeacherHandler(w http.ResponseWriter, r *http.Request, q *database.Quer
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		http.Error(w, "Failed to encode JSON response.", http.StatusInternalServerError)
-		log.Printf("An error ocurred while sending the response: %v\n", err)
-		return
+		log.Printf("Failed to encode JSON response: %v", err)
+		http.Error(w, "Unable to send response.", http.StatusInternalServerError)
 	}
 }
 
