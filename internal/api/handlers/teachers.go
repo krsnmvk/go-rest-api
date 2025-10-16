@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -35,6 +37,63 @@ type response[T any] struct {
 	Data    T    `json:"data"`
 }
 
+func getTeachersHandler(w http.ResponseWriter, r *http.Request, q *database.Queries) {
+	path := strings.TrimPrefix(r.URL.Path, "/teachers/")
+	idStr := strings.TrimSuffix(path, "/")
+
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		http.Error(w, "Invalid ID parameter.", http.StatusBadRequest)
+		log.Printf("Invalid ID: %v\n", err)
+		return
+	}
+
+	const sql = `
+		SELECT id, name, email, class, subject, created_at, updated_at
+		FROM teacher WHERE id = $1
+	`
+
+	var teacher models.Teacher
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	row := q.DB.QueryRow(ctx, sql, id)
+
+	if err = row.Scan(
+		&teacher.ID,
+		&teacher.Name,
+		&teacher.Email,
+		&teacher.Class,
+		&teacher.Subject,
+		&teacher.CreatedAt,
+		&teacher.UpdatedAt,
+	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			http.Error(w, "No rows found.", http.StatusNotFound)
+			return
+		}
+
+		http.Error(w, "Query failed.", http.StatusInternalServerError)
+		log.Printf("Query failed: %v\n", err)
+		return
+	}
+
+	resp := response[models.Teacher]{
+		Success: true,
+		Data:    teacher,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		http.Error(w, "Failed to encode JSON response.", http.StatusInternalServerError)
+		log.Printf("An error ocurred while sending the response: %v\n", err)
+		return
+	}
+}
+
 func postTeacherHandler(w http.ResponseWriter, r *http.Request, q *database.Queries) {
 	var input createTeacherParams
 
@@ -57,7 +116,7 @@ func postTeacherHandler(w http.ResponseWriter, r *http.Request, q *database.Quer
 
 	row := q.DB.QueryRow(ctx, sql, &input.Name, &input.Email, &input.Class, &input.Subject)
 
-	err := row.Scan(
+	if err := row.Scan(
 		&teacher.ID,
 		&teacher.Name,
 		&teacher.Email,
@@ -65,8 +124,7 @@ func postTeacherHandler(w http.ResponseWriter, r *http.Request, q *database.Quer
 		&teacher.Subject,
 		&teacher.CreatedAt,
 		&teacher.UpdatedAt,
-	)
-	if err != nil {
+	); err != nil {
 		var pgErr *pgconn.PgError
 
 		if errors.As(err, &pgErr) {
@@ -75,7 +133,6 @@ func postTeacherHandler(w http.ResponseWriter, r *http.Request, q *database.Quer
 				http.Error(w, "Email already in use.", http.StatusConflict)
 				return
 			}
-
 		}
 
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -106,8 +163,7 @@ func postTeacherHandler(w http.ResponseWriter, r *http.Request, q *database.Quer
 func (t *Teacher) TeachersHandler(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		w.Write([]byte("Hello GET Method on Teachers Route"))
-		fmt.Println("Hello GET Method on Teachers Route")
+		getTeachersHandler(w, r, t.queries)
 
 	case http.MethodPost:
 		postTeacherHandler(w, r, t.queries)

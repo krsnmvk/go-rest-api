@@ -13,9 +13,9 @@ func RegisterRoutes(queries *database.Queries) *http.ServeMux {
 	teachers := handlers.NewTeacher(queries)
 
 	mux.HandleFunc("/", handlers.RootHandler)
-	mux.HandleFunc("/teachers", teachers.TeachersHandler)
-	mux.HandleFunc("/students", handlers.StudentsHandler)
-	mux.HandleFunc("/execs", handlers.ExecsHandler)
+	mux.HandleFunc("/teachers/", teachers.TeachersHandler)
+	mux.HandleFunc("/students/", handlers.StudentsHandler)
+	mux.HandleFunc("/execs/", handlers.ExecsHandler)
 
 	return mux
 }
