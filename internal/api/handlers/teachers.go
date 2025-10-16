@@ -42,7 +42,6 @@ func getTeachersHandler(w http.ResponseWriter, r *http.Request, q *database.Quer
 	idStr := strings.TrimSuffix(path, "/")
 
 	if idStr == "" {
-		name := r.URL.Query().Get("name")
 		var args []any
 
 		sql := `
@@ -50,9 +49,21 @@ func getTeachersHandler(w http.ResponseWriter, r *http.Request, q *database.Quer
 			FROM teacher WHERE 1=1
 		`
 
-		if name != "" {
-			sql += " AND name = $1 LIMIT 10"
-			args = append(args, name)
+		params := map[string]string{
+			"name":    "name",
+			"email":   "email",
+			"class":   "class",
+			"subject": "subject",
+		}
+
+		paramIndex := 1
+		for param, dbField := range params {
+			value := r.URL.Query().Get(param)
+			if value != "" {
+				sql += fmt.Sprintf(" AND %s = $%d", dbField, paramIndex)
+				args = append(args, value)
+				paramIndex++
+			}
 		}
 
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
