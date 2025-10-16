@@ -24,6 +24,8 @@ var (
 func main() {
 	port := 8080
 
+	queries := database.NewQueries(db.Pool())
+
 	cert := "cert.pem"
 	key := "key.pem"
 
@@ -36,7 +38,7 @@ func main() {
 	}
 
 	secureMux := utils.Chain(
-		routes.RegisterRoutes(),
+		routes.RegisterRoutes(queries),
 		m.ResponseTimeMiddleware,
 		m.CorsMiddleware,
 		m.SecurityHeadersMiddleware,
