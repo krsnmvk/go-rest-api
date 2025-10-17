@@ -37,6 +37,21 @@ type response[T any] struct {
 	Data    T    `json:"data"`
 }
 
+func isValidSortOrder(order string) bool {
+	return order == "asc" || order == "desc"
+}
+
+func isValidSortField(field string) bool {
+	validField := map[string]bool{
+		"name":    true,
+		"email":   true,
+		"class":   true,
+		"subject": true,
+	}
+
+	return validField[field]
+}
+
 func getTeachersHandler(w http.ResponseWriter, r *http.Request, q *database.Queries) {
 	path := strings.TrimPrefix(r.URL.Path, "/teachers/")
 	idStr := strings.TrimSuffix(path, "/")
@@ -63,6 +78,30 @@ func getTeachersHandler(w http.ResponseWriter, r *http.Request, q *database.Quer
 				sql += fmt.Sprintf(" AND %s = $%d", dbField, paramIndex)
 				args = append(args, value)
 				paramIndex++
+			}
+		}
+
+		sortParams := r.URL.Query()["sortby"]
+		if len(sortParams) > 0 {
+			sql += " ORDER BY"
+
+			for i, param := range sortParams {
+				parts := strings.Split(param, ":")
+				if len(parts) != 2 {
+					continue
+				}
+
+				field, order := parts[0], parts[1]
+
+				if !isValidSortField(field) || !isValidSortOrder(order) {
+					continue
+				}
+
+				if i > 0 {
+					sql += ","
+				}
+
+				sql += fmt.Sprintf(" %s %s", field, order)
 			}
 		}
 
