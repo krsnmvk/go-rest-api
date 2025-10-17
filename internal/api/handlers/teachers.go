@@ -273,6 +273,88 @@ func postTeacherHandler(w http.ResponseWriter, r *http.Request, q *database.Quer
 	}
 }
 
+type updateTeacherParams struct {
+	Name    string `json:"name"`
+	Email   string `json:"email"`
+	Class   string `json:"class"`
+	Subject string `json:"subject"`
+}
+
+func putTeacherHandler(w http.ResponseWriter, r *http.Request, q *database.Queries) {
+	var input updateTeacherParams
+
+	path := strings.TrimPrefix(r.URL.Path, "/teachers/")
+	idStr := strings.TrimSuffix(path, "/")
+
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		http.Error(w, "Invalid request body.", http.StatusBadRequest)
+		log.Printf("Failed to decode request body: %v", err)
+		return
+	}
+	defer r.Body.Close()
+
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		http.Error(w, "The teacher ID must be a valid number.", http.StatusBadRequest)
+		log.Printf("Invalid teacher ID '%s': %v", idStr, err)
+		return
+	}
+
+	const sql = `
+		UPDATE teacher SET
+		name = $1,
+		email = $2,
+		class = $3,
+		subject = $4
+		WHERE id = $5
+		RETURNING id, name, email, class, subject, created_at, updated_at
+		`
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var teacher models.Teacher
+	row := q.DB.QueryRow(ctx, sql,
+		&input.Name,
+		&input.Email,
+		&input.Class,
+		&input.Subject,
+		id,
+	)
+
+	err = row.Scan(
+		&teacher.ID,
+		&teacher.Name,
+		&teacher.Email,
+		&teacher.Class,
+		&teacher.Subject,
+		&teacher.CreatedAt,
+		&teacher.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			http.Error(w, "Teacher not updated.", http.StatusNotFound)
+			return
+		}
+
+		http.Error(w, "Failed to update teacher.", http.StatusInternalServerError)
+		log.Printf("Datavase error during update: %v\n", err)
+		return
+	}
+
+	resp := response[models.Teacher]{
+		Success: true,
+		Data:    teacher,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		log.Printf("Failed to encode JSON response: %v", err)
+		http.Error(w, "Unable to send response.", http.StatusInternalServerError)
+	}
+}
+
 func (t *Teacher) TeachersHandler(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
@@ -286,8 +368,7 @@ func (t *Teacher) TeachersHandler(w http.ResponseWriter, r *http.Request) {
 		fmt.Println("Hello PATCH Method on Teachers Route")
 
 	case http.MethodPut:
-		w.Write([]byte("Hello PUT Method on Teachers Route"))
-		fmt.Println("Hello PUT Method on Teachers Route")
+		putTeacherHandler(w, r, t.queries)
 
 	case http.MethodDelete:
 		w.Write([]byte("Hello DELETE Method on Teachers Route"))
