@@ -338,7 +338,114 @@ func putTeacherHandler(w http.ResponseWriter, r *http.Request, q *database.Queri
 		}
 
 		http.Error(w, "Failed to update teacher.", http.StatusInternalServerError)
-		log.Printf("Datavase error during update: %v\n", err)
+		log.Printf("Database error during update: %v\n", err)
+		return
+	}
+
+	resp := response[models.Teacher]{
+		Success: true,
+		Data:    teacher,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		log.Printf("Failed to encode JSON response: %v", err)
+		http.Error(w, "Unable to send response.", http.StatusInternalServerError)
+	}
+}
+
+func patchTeacherHandler(w http.ResponseWriter, r *http.Request, q *database.Queries) {
+	var input map[string]any
+
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&input); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		log.Printf("Failed to decode request body: %v\n", err)
+		return
+	}
+	defer r.Body.Close()
+
+	path := strings.TrimPrefix(r.URL.Path, "/teachers/")
+	idStr := strings.TrimSuffix(path, "/")
+
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		http.Error(w, "The teacher ID must be a valid number.", http.StatusBadRequest)
+		log.Printf("Invalid teacher ID '%s': %v", idStr, err)
+		return
+	}
+
+	const sqlSelect = `
+		SELECT id, name, email, class, subject, created_at, updated_at FROM teacher WHERE id = $1
+	`
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	row := q.DB.QueryRow(ctx, sqlSelect, id)
+
+	var teacher models.Teacher
+	if err := row.Scan(
+		&teacher.ID,
+		&teacher.Name,
+		&teacher.Email,
+		&teacher.Class,
+		&teacher.Subject,
+		&teacher.CreatedAt,
+		&teacher.UpdatedAt,
+	); err != nil {
+		if err == pgx.ErrNoRows {
+			http.Error(w, "Teacher not found.", http.StatusNotFound)
+			log.Printf("Teacher with ID %d not found.", id)
+			return
+		}
+		log.Printf("Database query error (get teacher by ID): %v", err)
+		http.Error(w, "Failed to fetch data from the database.", http.StatusInternalServerError)
+		return
+	}
+
+	for k, v := range input {
+		switch k {
+		case "name":
+			if name, ok := v.(string); ok {
+				teacher.Name = name
+			}
+		case "email":
+			if email, ok := v.(string); ok {
+				teacher.Email = email
+			}
+		case "class":
+			if class, ok := v.(string); ok {
+				teacher.Class = class
+			}
+		case "subject":
+			if subject, ok := v.(string); ok {
+				teacher.Subject = subject
+			}
+		}
+	}
+
+	const sqlUpdate = `
+		UPDATE teacher
+		SET name = $1, email = $2, class = $3, subject = $4
+		WHERE id = $5
+	`
+
+	ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, err = q.DB.Exec(ctx, sqlUpdate,
+		teacher.Name,
+		teacher.Email,
+		teacher.Class,
+		teacher.Subject,
+		id,
+	)
+	if err != nil {
+		log.Printf("Failed to update teacher with ID %d: %v", id, err)
+		http.Error(w, "Failed to update teacher.", http.StatusInternalServerError)
 		return
 	}
 
@@ -364,8 +471,7 @@ func (t *Teacher) TeachersHandler(w http.ResponseWriter, r *http.Request) {
 		postTeacherHandler(w, r, t.queries)
 
 	case http.MethodPatch:
-		w.Write([]byte("Hello PATCH Method on Teachers Route"))
-		fmt.Println("Hello PATCH Method on Teachers Route")
+		patchTeacherHandler(w, r, t.queries)
 
 	case http.MethodPut:
 		putTeacherHandler(w, r, t.queries)
