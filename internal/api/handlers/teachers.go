@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -406,23 +407,38 @@ func patchTeacherHandler(w http.ResponseWriter, r *http.Request, q *database.Que
 		return
 	}
 
+	// for k, v := range input {
+	// 	switch k {
+	// 	case "name":
+	// 		if name, ok := v.(string); ok {
+	// 			teacher.Name = name
+	// 		}
+	// 	case "email":
+	// 		if email, ok := v.(string); ok {
+	// 			teacher.Email = email
+	// 		}
+	// 	case "class":
+	// 		if class, ok := v.(string); ok {
+	// 			teacher.Class = class
+	// 		}
+	// 	case "subject":
+	// 		if subject, ok := v.(string); ok {
+	// 			teacher.Subject = subject
+	// 		}
+	// 	}
+	// }
+
+	teacherValue := reflect.ValueOf(&teacher).Elem()
+	teacherType := teacherValue.Type()
+
 	for k, v := range input {
-		switch k {
-		case "name":
-			if name, ok := v.(string); ok {
-				teacher.Name = name
-			}
-		case "email":
-			if email, ok := v.(string); ok {
-				teacher.Email = email
-			}
-		case "class":
-			if class, ok := v.(string); ok {
-				teacher.Class = class
-			}
-		case "subject":
-			if subject, ok := v.(string); ok {
-				teacher.Subject = subject
+		for i := 0; i < teacherValue.NumField(); i++ {
+			field := teacherType.Field(i)
+
+			if field.Tag.Get("json") == k {
+				if teacherValue.Field(i).CanSet() {
+					teacherValue.Field(i).Set(reflect.ValueOf(v).Convert(teacherValue.Field(i).Type()))
+				}
 			}
 		}
 	}
@@ -437,10 +453,10 @@ func patchTeacherHandler(w http.ResponseWriter, r *http.Request, q *database.Que
 	defer cancel()
 
 	_, err = q.DB.Exec(ctx, sqlUpdate,
-		teacher.Name,
-		teacher.Email,
-		teacher.Class,
-		teacher.Subject,
+		&teacher.Name,
+		&teacher.Email,
+		&teacher.Class,
+		&teacher.Subject,
 		id,
 	)
 	if err != nil {
