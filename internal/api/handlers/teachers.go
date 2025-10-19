@@ -478,6 +478,52 @@ func patchTeacherHandler(w http.ResponseWriter, r *http.Request, q *database.Que
 	}
 }
 
+func deleteTeacherHandler(w http.ResponseWriter, r *http.Request, q *database.Queries) {
+	path := strings.TrimPrefix(r.URL.Path, "/teachers/")
+	idStr := strings.TrimSuffix(path, "/")
+
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		http.Error(w, "Teacher ID must be a valid number.", http.StatusBadRequest)
+		log.Printf("Invalid teacher ID format: %v", err)
+		return
+	}
+
+	const sql = `
+		DELETE FROM teacher WHERE id = $1
+	`
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	result, err := q.DB.Exec(ctx, sql, id)
+	if err != nil {
+		log.Printf("Error deleting teacher with ID %d: %v", id, err)
+		http.Error(w, "Internal server error while deleting teacher.", http.StatusInternalServerError)
+		return
+	}
+
+	rowsAffected := result.RowsAffected()
+	if rowsAffected == 0 {
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": fmt.Sprintf("No teacher found with ID %d.", id),
+		})
+		log.Printf("No teacher found with ID %d", id)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(map[string]any{
+		"success": true,
+		"message": fmt.Sprintf("Teacher with ID %d successfully deleted.", id),
+	}); err != nil {
+		log.Printf("Failed to encode JSON response: %v", err)
+		http.Error(w, "Unable to send response.", http.StatusInternalServerError)
+	}
+}
+
 func (t *Teacher) TeachersHandler(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
@@ -493,8 +539,7 @@ func (t *Teacher) TeachersHandler(w http.ResponseWriter, r *http.Request) {
 		putTeacherHandler(w, r, t.queries)
 
 	case http.MethodDelete:
-		w.Write([]byte("Hello DELETE Method on Teachers Route"))
-		fmt.Println("Hello DELETE Method on Teachers Route")
+		deleteTeacherHandler(w, r, t.queries)
 
 	default:
 		w.Write([]byte("Method Not Allowed"))
