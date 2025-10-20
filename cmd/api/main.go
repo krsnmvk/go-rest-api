@@ -19,12 +19,13 @@ import (
 var (
 	done = make(chan bool, 1)
 	db   = database.NewPostgres()
+	pool = db.Pool()
 )
 
 func main() {
 	port := 8080
 
-	queries := database.NewQueries(db.Pool())
+	queries := database.NewQueries(pool)
 
 	cert := "cert.pem"
 	key := "key.pem"
@@ -38,7 +39,7 @@ func main() {
 	}
 
 	secureMux := utils.Chain(
-		routes.RegisterRoutes(queries),
+		routes.RegisterRoutes(queries, pool),
 		m.ResponseTimeMiddleware,
 		m.CorsMiddleware,
 		m.SecurityHeadersMiddleware,

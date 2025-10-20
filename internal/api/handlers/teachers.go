@@ -14,16 +14,18 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/krsnmvk/gorestapi/internal/database"
 	"github.com/krsnmvk/gorestapi/internal/models"
 )
 
 type TeacherHandler struct {
-	db *database.Queries
+	db   *database.Queries
+	pool *pgxpool.Pool
 }
 
-func NewTeacherHandler(db *database.Queries) *TeacherHandler {
-	return &TeacherHandler{db: db}
+func NewTeacherHandler(db *database.Queries, pool *pgxpool.Pool) *TeacherHandler {
+	return &TeacherHandler{db: db, pool: pool}
 }
 
 type CreateTeacherParams struct {
@@ -397,8 +399,7 @@ func (h *TeacherHandler) PartialUpdateTeacher(w http.ResponseWriter, r *http.Req
 // DELETE /teachers/{id}
 // ==========================================
 func (h *TeacherHandler) DeleteTeacher(w http.ResponseWriter, r *http.Request) {
-	path := strings.TrimPrefix(r.URL.Path, "/teachers/")
-	idStr := strings.TrimSuffix(path, "/")
+	idStr := r.PathValue("id")
 
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
@@ -427,6 +428,148 @@ func (h *TeacherHandler) DeleteTeacher(w http.ResponseWriter, r *http.Request) {
 		"success": true,
 		"message": fmt.Sprintf("Teacher with ID %d successfully deleted.", id),
 	})
+}
+
+// ==========================================
+// PATCH /teachers
+// ==========================================
+func (h *TeacherHandler) PartialUpdateTeachers(w http.ResponseWriter, r *http.Request) {
+	var updates []map[string]any
+
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&updates); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		log.Printf("Failed to decode request body: %v", err)
+		return
+	}
+	defer r.Body.Close()
+
+	ctxR := r.Context()
+
+	conn, err := h.pool.Acquire(ctxR)
+	if err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		log.Printf("Failed to acquire connection: %v", err)
+		return
+	}
+	defer conn.Release()
+
+	tx, err := conn.Begin(ctxR)
+	if err != nil {
+		http.Error(w, "Error starting transaction", http.StatusInternalServerError)
+		log.Printf("Failed to begin transaction: %v", err)
+		return
+	}
+	defer func() {
+		_ = tx.Rollback(ctxR)
+	}()
+
+	txQueries := h.db.WithTx(tx)
+
+	const sqlSelect = `
+		SELECT id, name, email, class, subject, created_at, updated_at
+		FROM teacher
+		WHERE id = $1
+	`
+
+	const sqlUpdate = `
+		UPDATE teacher
+		SET name = $1, email = $2, class = $3, subject = $4, updated_at = NOW()
+		WHERE id = $5
+		RETURNING id, name, email, class, subject, created_at, updated_at
+	`
+
+	var updatedTeachers []models.Teacher
+
+	for _, update := range updates {
+		idFloat, ok := update["id"].(float64)
+		if !ok {
+			http.Error(w, "Invalid teacher ID type", http.StatusBadRequest)
+			return
+		}
+		id := int(idFloat)
+
+		ctx, cancel := context.WithTimeout(ctxR, 5*time.Second)
+
+		var teacher models.Teacher
+		err = txQueries.DB.QueryRow(ctx, sqlSelect, id).Scan(
+			&teacher.ID,
+			&teacher.Name,
+			&teacher.Email,
+			&teacher.Class,
+			&teacher.Subject,
+			&teacher.CreatedAt,
+			&teacher.UpdatedAt,
+		)
+		cancel()
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				http.Error(w, fmt.Sprintf("Teacher with ID %d not found", id), http.StatusNotFound)
+				return
+			}
+			http.Error(w, "Failed to fetch teacher", http.StatusInternalServerError)
+			log.Printf("QueryRow error: %v", err)
+			return
+		}
+
+		teacherVal := reflect.ValueOf(&teacher).Elem()
+		teacherType := teacherVal.Type()
+
+		for key, val := range update {
+			if key == "id" {
+				continue
+			}
+
+			for i := 0; i < teacherVal.NumField(); i++ {
+				field := teacherType.Field(i)
+				if field.Tag.Get("json") == key {
+					fieldVal := teacherVal.Field(i)
+					if fieldVal.CanSet() {
+						v := reflect.ValueOf(val)
+						if v.Type().ConvertibleTo(fieldVal.Type()) {
+							fieldVal.Set(v.Convert(fieldVal.Type()))
+						} else {
+							http.Error(w, fmt.Sprintf("Invalid type for field %s", key), http.StatusBadRequest)
+							return
+						}
+					}
+					break
+				}
+			}
+		}
+
+		ctx, cancel = context.WithTimeout(ctxR, 5*time.Second)
+		defer cancel()
+
+		err = txQueries.DB.QueryRow(ctx, sqlUpdate,
+			teacher.Name, teacher.Email, teacher.Class, teacher.Subject, id,
+		).Scan(
+			&teacher.ID,
+			&teacher.Name,
+			&teacher.Email,
+			&teacher.Class,
+			&teacher.Subject,
+			&teacher.CreatedAt,
+			&teacher.UpdatedAt,
+		)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to update teacher with ID %d", id), http.StatusInternalServerError)
+			log.Printf("Update failed: %v", err)
+			return
+		}
+
+		updatedTeachers = append(updatedTeachers, teacher)
+	}
+
+	if err := tx.Commit(ctxR); err != nil {
+		http.Error(w, "Failed to commit transaction", http.StatusInternalServerError)
+		log.Printf("Commit error: %v", err)
+		return
+	}
+
+	response := APIResponse[[]models.Teacher]{Success: true, Data: updatedTeachers}
+	writeJSON(w, http.StatusOK, response)
 }
 
 // ==========================================
