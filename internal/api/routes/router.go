@@ -18,6 +18,7 @@ func RegisterRoutes(queries *database.Queries, pool *pgxpool.Pool) *http.ServeMu
 	mux.HandleFunc("GET /teachers", teachers.GetTeachers)
 	mux.HandleFunc("POST /teachers", teachers.CreateTeacher)
 	mux.HandleFunc("PATCH /teachers", teachers.PartialUpdateTeachers)
+	mux.HandleFunc("DELETE /teachers", teachers.DeleteTeachers)
 	mux.HandleFunc("GET /teachers/{id}", teachers.GetTeacher)
 	mux.HandleFunc("PATCH /teachers/{id}", teachers.PartialUpdateTeacher)
 	mux.HandleFunc("PUT /teachers/{id}", teachers.UpdateTeacher)

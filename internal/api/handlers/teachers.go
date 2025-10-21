@@ -298,7 +298,7 @@ func (h *TeacherHandler) UpdateTeacher(w http.ResponseWriter, r *http.Request) {
 
 	const updateQuery = `
 		UPDATE teacher
-		SET name = $1, email = $2, class = $3, subject = $4, updated_at = NOW()
+		SET name = $1, email = $2, class = $3, subject = $4
 		WHERE id = $5
 	`
 
@@ -378,7 +378,7 @@ func (h *TeacherHandler) PartialUpdateTeacher(w http.ResponseWriter, r *http.Req
 
 	const updateQuery = `
 		UPDATE teacher
-		SET name = $1, email = $2, class = $3, subject = $4, updated_at = NOW()
+		SET name = $1, email = $2, class = $3, subject = $4
 		WHERE id = $5
 	`
 
@@ -407,12 +407,12 @@ func (h *TeacherHandler) DeleteTeacher(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	const query = `DELETE FROM teacher WHERE id = $1`
+	const deleteQuery = `DELETE FROM teacher WHERE id = $1`
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	result, err := h.db.DB.Exec(ctx, query, id)
+	result, err := h.db.DB.Exec(ctx, deleteQuery, id)
 	if err != nil {
 		log.Printf("Error deleting teacher with ID %d: %v", id, err)
 		http.Error(w, "Internal server error while deleting teacher.", http.StatusInternalServerError)
@@ -467,15 +467,15 @@ func (h *TeacherHandler) PartialUpdateTeachers(w http.ResponseWriter, r *http.Re
 
 	txQueries := h.db.WithTx(tx)
 
-	const sqlSelect = `
+	const selectQuery = `
 		SELECT id, name, email, class, subject, created_at, updated_at
 		FROM teacher
 		WHERE id = $1
 	`
 
-	const sqlUpdate = `
+	const updateQuery = `
 		UPDATE teacher
-		SET name = $1, email = $2, class = $3, subject = $4, updated_at = NOW()
+		SET name = $1, email = $2, class = $3, subject = $4
 		WHERE id = $5
 		RETURNING id, name, email, class, subject, created_at, updated_at
 	`
@@ -493,7 +493,7 @@ func (h *TeacherHandler) PartialUpdateTeachers(w http.ResponseWriter, r *http.Re
 		ctx, cancel := context.WithTimeout(ctxR, 5*time.Second)
 
 		var teacher models.Teacher
-		err = txQueries.DB.QueryRow(ctx, sqlSelect, id).Scan(
+		err = txQueries.DB.QueryRow(ctx, selectQuery, id).Scan(
 			&teacher.ID,
 			&teacher.Name,
 			&teacher.Email,
@@ -542,7 +542,7 @@ func (h *TeacherHandler) PartialUpdateTeachers(w http.ResponseWriter, r *http.Re
 		ctx, cancel = context.WithTimeout(ctxR, 5*time.Second)
 		defer cancel()
 
-		err = txQueries.DB.QueryRow(ctx, sqlUpdate,
+		err = txQueries.DB.QueryRow(ctx, updateQuery,
 			teacher.Name, teacher.Email, teacher.Class, teacher.Subject, id,
 		).Scan(
 			&teacher.ID,
@@ -569,6 +569,76 @@ func (h *TeacherHandler) PartialUpdateTeachers(w http.ResponseWriter, r *http.Re
 	}
 
 	response := APIResponse[[]models.Teacher]{Success: true, Data: updatedTeachers}
+	writeJSON(w, http.StatusOK, response)
+}
+
+// ==========================================
+// PATCH /teachers
+// ==========================================
+func (h *TeacherHandler) DeleteTeachers(w http.ResponseWriter, r *http.Request) {
+	var ids []int
+
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&ids); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		log.Printf("Failed to decode request body: %v", err)
+		return
+	}
+	defer r.Body.Close()
+
+	ctxR := r.Context()
+
+	conn, err := h.pool.Acquire(ctxR)
+	if err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		log.Printf("Failed to acquire connection: %v", err)
+		return
+	}
+	defer conn.Release()
+
+	tx, err := conn.Begin(ctxR)
+	if err != nil {
+		http.Error(w, "Error starting transaction", http.StatusInternalServerError)
+		log.Printf("Failed to begin transaction: %v", err)
+		return
+	}
+	defer func() {
+		_ = tx.Rollback(ctxR)
+	}()
+
+	txQueries := h.db.WithTx(tx)
+
+	const deleteQuery = `
+		DELETE FROM teacher WHERE id = $1
+	`
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var deletedIds []interface{}
+	for _, id := range ids {
+		result, err := txQueries.DB.Exec(ctx, deleteQuery, id)
+		if err != nil {
+			log.Printf(":%v", err)
+			http.Error(w, "Error deleting teachers.", http.StatusInternalServerError)
+			return
+		}
+
+		rowsAffected := result.RowsAffected()
+
+		if rowsAffected > 0 {
+			deletedIds = append(deletedIds, id)
+		}
+	}
+
+	if err := tx.Commit(ctxR); err != nil {
+		http.Error(w, "Failed to commit transaction", http.StatusInternalServerError)
+		log.Printf("Commit error: %v", err)
+		return
+	}
+
+	response := APIResponse[[]any]{Success: true, Data: deletedIds}
 	writeJSON(w, http.StatusOK, response)
 }
 
