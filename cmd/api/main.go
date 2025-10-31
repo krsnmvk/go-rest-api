@@ -1,26 +1,45 @@
 package main
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"strings"
+	"time"
 )
 
 func main() {
 	port := ":8080"
+	certFile := "cert.pem"
+	keyFile := "key.pem"
 
-	http.HandleFunc("/", rootHandler)
-	http.HandleFunc("/teachers/", teachersHandler)
-	http.HandleFunc("/students/", studentsHandler)
-	http.HandleFunc("/execs/", execsHandler)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", rootHandler)
+	mux.HandleFunc("/teachers/", teachersHandler)
+	mux.HandleFunc("/students/", studentsHandler)
+	mux.HandleFunc("/execs/", execsHandler)
 
-	log.Println("Server runing on http://localhost:8080")
-	if err := http.ListenAndServe(port, nil); err != nil {
-		panic(fmt.Sprintf("Error starting the server: %v\n", err))
+	tlsConfig := &tls.Config{
+		MinVersion: tls.VersionTLS12,
 	}
+
+	server := &http.Server{
+		Addr:         port,
+		Handler:      mux,
+		TLSConfig:    tlsConfig,
+		IdleTimeout:  time.Minute,
+		WriteTimeout: 30 * time.Second,
+		ReadTimeout:  10 * time.Second,
+	}
+
+	log.Println("Server running on https://localhost:8080")
+	if err := server.ListenAndServeTLS(certFile, keyFile); err != nil {
+		log.Fatalf("Error starting the server: %v\n", err)
+	}
+
 }
 
 func rootHandler(w http.ResponseWriter, r *http.Request) {
