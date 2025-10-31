@@ -38,9 +38,16 @@ type Teacher struct {
 func teachersHandler(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		path := strings.TrimPrefix(r.URL.Path, "/teachers/")
-		id := strings.TrimSuffix(path, "/")
+		pathParams := strings.TrimPrefix(r.URL.Path, "/teachers/")
+		id := strings.TrimSuffix(pathParams, "/")
 		fmt.Fprintf(w, "ID: %s\n", id)
+
+		queryParams := r.URL.Query()
+		name := queryParams.Get("name")
+		fmt.Fprintf(w, "Name: %s\n", name)
+
+		age := queryParams.Get("age")
+		fmt.Fprintf(w, "Age: %s\n", age)
 
 	case http.MethodPost:
 		if err := r.ParseForm(); err != nil {
