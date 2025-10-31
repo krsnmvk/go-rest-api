@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/krsnmvk/gorestapi/internal/middlewares"
 )
 
 func main() {
@@ -28,7 +30,7 @@ func main() {
 
 	server := &http.Server{
 		Addr:         port,
-		Handler:      mux,
+		Handler:      middlewares.SecurityHeadersMiddleware(mux),
 		TLSConfig:    tlsConfig,
 		IdleTimeout:  time.Minute,
 		WriteTimeout: 30 * time.Second,
@@ -39,7 +41,6 @@ func main() {
 	if err := server.ListenAndServeTLS(certFile, keyFile); err != nil {
 		log.Fatalf("Error starting the server: %v\n", err)
 	}
-
 }
 
 func rootHandler(w http.ResponseWriter, r *http.Request) {
