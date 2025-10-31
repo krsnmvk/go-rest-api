@@ -30,7 +30,7 @@ func main() {
 
 	server := &http.Server{
 		Addr:         port,
-		Handler:      m.CorsMiddleware(m.SecurityHeadersMiddleware(m.GzipMiddleware(m.ResponseTimeMiddleware((mux))))),
+		Handler:      m.CorsMiddleware(m.SecurityHeadersMiddleware(m.RateLimitMiddleware(m.GzipMiddleware(m.ResponseTimeMiddleware((mux)))))),
 		TLSConfig:    tlsConfig,
 		IdleTimeout:  time.Minute,
 		WriteTimeout: 30 * time.Second,
