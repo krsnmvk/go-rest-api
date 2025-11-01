@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/krsnmvk/gorestapi/internal/db"
 	"github.com/krsnmvk/gorestapi/internal/handler"
 	m "github.com/krsnmvk/gorestapi/internal/middleware"
 	"github.com/krsnmvk/gorestapi/pkg/utils"
@@ -17,6 +18,11 @@ func main() {
 	keyFile := "key.pem"
 
 	mux := http.NewServeMux()
+
+	db := db.NewPostgres()
+	for k, v := range db.Health() {
+		log.Printf("%s: %s", k, v)
+	}
 
 	mux.HandleFunc("/", handler.RootHandler)
 	mux.HandleFunc("/teachers/", handler.TeachersHandler)

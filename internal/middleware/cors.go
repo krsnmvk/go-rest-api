@@ -20,7 +20,7 @@ func CorsMiddleware(next http.Handler) http.Handler {
 		origin := r.Header.Get("Origin")
 
 		if origin == "" && !isAllowedOrigin(origin) {
-			log.Printf("CORS blocked: origin %s not allowed\n", origin)
+			log.Printf("CORS blocked: origin %s not allowed", origin)
 			http.Error(w, "Forbidden - CORS", http.StatusForbidden)
 			return
 		}
