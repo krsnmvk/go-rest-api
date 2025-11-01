@@ -11,6 +11,7 @@ import (
 	"time"
 
 	m "github.com/krsnmvk/gorestapi/internal/middlewares"
+	"github.com/krsnmvk/gorestapi/pkg/utils"
 )
 
 func main() {
@@ -28,11 +29,18 @@ func main() {
 		MinVersion: tls.VersionTLS12,
 	}
 
-	hppMiddleware := m.HppMiddleware(m.Reject, map[string]bool{"tags": true, "ids": true})
+	secureMux := utils.Chain(mux,
+		m.CorsMiddleware,
+		m.SecurityHeadersMiddleware,
+		m.RateLimitMiddleware,
+		m.HppMiddleware(m.Reject, map[string]bool{"tags": true, "ids": true}),
+		m.GzipMiddleware,
+		m.ResponseTimeMiddleware,
+	)
 
 	server := &http.Server{
 		Addr:         port,
-		Handler:      m.CorsMiddleware(m.SecurityHeadersMiddleware(m.RateLimitMiddleware(m.GzipMiddleware(m.ResponseTimeMiddleware(hppMiddleware(mux)))))),
+		Handler:      secureMux,
 		TLSConfig:    tlsConfig,
 		IdleTimeout:  time.Minute,
 		WriteTimeout: 30 * time.Second,
