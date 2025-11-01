@@ -28,9 +28,11 @@ func main() {
 		MinVersion: tls.VersionTLS12,
 	}
 
+	hppMiddleware := m.HppMiddleware(m.Reject, map[string]bool{"tags": true, "ids": true})
+
 	server := &http.Server{
 		Addr:         port,
-		Handler:      m.CorsMiddleware(m.SecurityHeadersMiddleware(m.RateLimitMiddleware(m.GzipMiddleware(m.ResponseTimeMiddleware((mux)))))),
+		Handler:      m.CorsMiddleware(m.SecurityHeadersMiddleware(m.RateLimitMiddleware(m.GzipMiddleware(m.ResponseTimeMiddleware(hppMiddleware(mux)))))),
 		TLSConfig:    tlsConfig,
 		IdleTimeout:  time.Minute,
 		WriteTimeout: 30 * time.Second,
@@ -67,7 +69,7 @@ func teachersHandler(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "Name: %s\n", name)
 
 		age := queryParams.Get("age")
-		fmt.Fprintf(w, "Age: %s\n", age)
+		fmt.Fprintf(w, "Test: %s\n", age)
 
 	case http.MethodPost:
 		if err := r.ParseForm(); err != nil {
