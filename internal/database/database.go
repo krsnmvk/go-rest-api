@@ -1,4 +1,4 @@
-package db
+package database
 
 import (
 	"context"
@@ -8,7 +8,6 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
-	_ "github.com/joho/godotenv/autoload"
 )
 
 type Service interface {
@@ -55,10 +54,8 @@ func NewPostgres() *postgresService {
 	}
 }
 
-func (ps *postgresService) Pool() *postgresService {
-	return &postgresService{
-		pool: ps.pool,
-	}
+func (ps *postgresService) Pool() *pgxpool.Pool {
+	return ps.pool
 }
 
 func (ps *postgresService) Close() error {

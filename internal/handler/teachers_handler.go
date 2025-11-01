@@ -2,20 +2,48 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
+	"log"
 	"net/http"
 	"strings"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/krsnmvk/gorestapi/internal/database"
 )
 
-type Teacher struct {
-	Name    string `json:"name"`
-	Email   string `json:"email"`
-	Class   string `json:"class"`
-	Subject string `json:"subject"`
+type TeachersHandler struct {
+	q *database.Queries
 }
 
-func TeachersHandler(w http.ResponseWriter, r *http.Request) {
+func NewTeachersHandler(q *database.Queries) *TeachersHandler {
+	return &TeachersHandler{
+		q: q,
+	}
+}
+
+type Teacher struct {
+	ID        int       `json:"id"`
+	FirstName string    `json:"first_name"`
+	LastName  string    `json:"last_name"`
+	Email     string    `json:"email"`
+	Class     string    `json:"class"`
+	Subject   string    `json:"subject"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type createTeacherParams struct {
+	FirstName string `json:"first_name"`
+	LastName  string `json:"last_name"`
+	Email     string `json:"email"`
+	Class     string `json:"class"`
+	Subject   string `json:"subject"`
+}
+
+func (th *TeachersHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		pathParams := strings.TrimPrefix(r.URL.Path, "/teachers/")
@@ -30,34 +58,68 @@ func TeachersHandler(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "Test: %s\n", age)
 
 	case http.MethodPost:
-		if err := r.ParseForm(); err != nil {
-			fmt.Println("Error parsing form:", err)
-			http.Error(w, "Error parsing form", http.StatusBadRequest)
-			return
-		}
+		var input createTeacherParams
 
-		fmt.Println("Parsed Form Data:")
-		for key, values := range r.Form {
-			for _, value := range values {
-				fmt.Fprintf(w, "%s: %s\n", key, value)
-				fmt.Printf("%s: %s\n", key, value)
-			}
-		}
-
-		body, err := io.ReadAll(r.Body)
-		if err != nil {
-			fmt.Println("Error reading body:", err)
-			http.Error(w, "Error reading body", http.StatusInternalServerError)
+		decoder := json.NewDecoder(r.Body)
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&input); err != nil {
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			log.Printf("Error decoding JSON request body: %v\n", err)
 			return
 		}
 		defer r.Body.Close()
 
-		fmt.Println("Raw Body:", string(body))
+		rctx := r.Context()
+
+		const createQuery = `
+			INSERT INTO teachers (
+				first_name,
+				last_name,
+				email,
+				class,
+				subject
+			) VALUES ($1, $2, $3, $4, $5) RETURNING 
+				id, 
+				first_name, 
+				last_name, 
+				email, 
+				class, 
+				subject, 
+				created_at, 
+				updated_at
+			`
 
 		var teacher Teacher
-		if err := json.Unmarshal(body, &teacher); err != nil {
-			fmt.Println("Error unmarshaling JSON:", err)
-			http.Error(w, "Invalid JSON body", http.StatusBadRequest)
+		row := th.q.Db.QueryRow(rctx, createQuery,
+			&input.FirstName, &input.LastName, &input.Email, &input.Class, &input.Subject,
+		)
+
+		err := row.Scan(
+			&teacher.ID,
+			&teacher.FirstName,
+			&teacher.LastName,
+			&teacher.Email,
+			&teacher.Class,
+			&teacher.Subject,
+			&teacher.CreatedAt,
+			&teacher.UpdatedAt,
+		)
+		if err != nil {
+			var pgErr *pgconn.PgError
+
+			switch {
+			case err == pgx.ErrNoRows:
+				http.Error(w, "Teacher not found", http.StatusNotFound)
+
+			case errors.As(err, &pgErr):
+				log.Printf("Postgres error (%s): %s, Detail: %s, Hint: %s",
+					pgErr.Code, pgErr.Message, pgErr.Detail, pgErr.Hint)
+				http.Error(w, "Failed to create teacher", http.StatusInternalServerError)
+
+			default:
+				log.Printf("QueryRow Scan error: %v", err)
+				http.Error(w, "Failed to create teacher", http.StatusInternalServerError)
+			}
 			return
 		}
 
